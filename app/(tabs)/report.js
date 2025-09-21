@@ -3,9 +3,10 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { Camera, MapPin, Upload, Send, X, Navigation, Map } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
-import { createIssue, getCurrentUser, updateUserPoints, getStates, getDistrictsByState, getAreasByDistrict } from '../../lib/supabase';
+import { createIssue, getCurrentUser, updateUserPoints } from '../../lib/supabase';
 import { uploadMultipleImages } from '../../lib/cloudinary';
 import { useTranslation } from 'react-i18next';
+import LocationSelector from '../../components/LocationSelector';
 
 export default function ReportScreen() {
     const { t } = useTranslation();
@@ -28,10 +29,6 @@ export default function ReportScreen() {
     const [selectedImages, setSelectedImages] = useState([]);
     const [loading, setLoading] = useState(false);
     const [showLocationModal, setShowLocationModal] = useState(false);
-    const [states, setStates] = useState([]);
-    const [districts, setDistricts] = useState([]);
-    const [areas, setAreas] = useState([]);
-    const [loadingLocations, setLoadingLocations] = useState(false);
 
     const categories = [
         { id: 'roads', label: 'Roads & Infrastructure', color: '#EF4444', icon: '🛣️' },
@@ -79,110 +76,20 @@ export default function ReportScreen() {
 
     const handleLocationSelection = () => {
         setShowLocationModal(true);
-        loadStates();
     };
 
-    const loadStates = async () => {
-        try {
-            setLoadingLocations(true);
-            const { data, error } = await getStates();
-            if (error) throw error;
-            setStates(data || []);
-        } catch (error) {
-            console.error('Error loading states:', error);
-        } finally {
-            setLoadingLocations(false);
-        }
-    };
-
-    const loadDistricts = async (stateId) => {
-        try {
-            setLoadingLocations(true);
-            const { data, error } = await getDistrictsByState(stateId);
-            if (error) throw error;
-            setDistricts(data || []);
-            setAreas([]);
-        } catch (error) {
-            console.error('Error loading districts:', error);
-        } finally {
-            setLoadingLocations(false);
-        }
-    };
-
-    const loadAreas = async (districtId) => {
-        try {
-            setLoadingLocations(true);
-            const { data, error } = await getAreasByDistrict(districtId);
-            if (error) throw error;
-            setAreas(data || []);
-        } catch (error) {
-            console.error('Error loading areas:', error);
-        } finally {
-            setLoadingLocations(false);
-        }
-    };
-
-    const useCurrentLocation = async () => {
-        try {
-            const { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert('Permission Denied', 'Location permission is required to get current location');
-                return;
-            }
-
-            const location = await Location.getCurrentPositionAsync({});
-            const { latitude, longitude } = location.coords;
-
-            // Reverse geocoding to get address
-            const reverseGeocode = await Location.reverseGeocodeAsync({
-                latitude,
-                longitude,
-            });
-
-            if (reverseGeocode.length > 0) {
-                const address = reverseGeocode[0];
-                setFormData({
-                    ...formData,
-                    latitude,
-                    longitude,
-                    locationName: `${address.street || ''} ${address.name || ''}`.trim(),
-                    address: `${address.street || ''}, ${address.city || ''}, ${address.region || ''}`,
-                    area: address.district || address.subregion || '',
-                    ward: address.city || '',
-                    locationType: 'current'
-                });
-                setShowLocationModal(false);
-                Alert.alert(t('common.success'), 'Current location captured successfully!');
-            }
-        } catch (error) {
-            console.error('Error getting location:', error);
-            Alert.alert('Error', 'Failed to get current location');
-        }
-    };
-
-    const confirmManualLocation = () => {
-        if (!formData.selectedArea) {
-            Alert.alert('Error', 'Please select an area');
-            return;
-        }
-
-        // Find the selected area details
-        const selectedAreaData = areas.find(a => a.id === formData.selectedArea);
-        const selectedDistrictData = districts.find(d => d.id === formData.selectedDistrict);
-        const selectedStateData = states.find(s => s.id === formData.selectedState);
-
-        if (selectedAreaData && selectedDistrictData && selectedStateData) {
-            setFormData({
-                ...formData,
-                locationName: selectedAreaData.name,
-                address: `${selectedAreaData.name}, ${selectedDistrictData.name}, ${selectedStateData.name}`,
-                area: selectedAreaData.name,
-                ward: selectedDistrictData.name,
-                locationType: 'manual'
-            });
-            setShowLocationModal(false);
-            Alert.alert(t('common.success'), 'Location selected successfully!');
-        }
+    const handleLocationSelected = (locationData) => {
+        setFormData(prev => ({
+            ...prev,
+            latitude: locationData.latitude || null,
+            longitude: locationData.longitude || null,
+            locationName: locationData.locationName || locationData.areaName || '',
+            address: locationData.address || locationData.fullAddress || '',
+            area: locationData.areaName || locationData.area || '',
+            ward: locationData.districtName || locationData.ward || '',
+            locationType: locationData.locationType || 'manual'
+        }));
+        setShowLocationModal(false);
     };
 
     const submitReport = async () => {
@@ -470,174 +377,13 @@ export default function ReportScreen() {
             </View>
 
             {/* Location Selection Modal */}
-            <Modal
+            <LocationSelector
                 visible={showLocationModal}
-                animationType="slide"
-                presentationStyle="pageSheet"
-            >
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <TouchableOpacity
-                            style={styles.modalCloseButton}
-                            onPress={() => setShowLocationModal(false)}
-                        >
-                            <X size={24} color="#6B7280" />
-                        </TouchableOpacity>
-                        <Text style={styles.modalTitle}>Select Issue Location</Text>
-                        <View style={styles.modalHeaderSpacer} />
-                    </View>
-
-                    <ScrollView style={styles.modalContent}>
-                        {/* Location Method Selection */}
-                        <View style={styles.locationMethodSection}>
-                            <Text style={styles.sectionTitle}>Choose Location Method</Text>
-                            
-                            <TouchableOpacity
-                                style={styles.locationMethodButton}
-                                onPress={useCurrentLocation}
-                            >
-                                <Navigation size={24} color="#10B981" />
-                                <View style={styles.locationMethodContent}>
-                                    <Text style={styles.locationMethodTitle}>Use Current Location</Text>
-                                    <Text style={styles.locationMethodDescription}>
-                                        Automatically detect your current GPS location
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
-
-                            <Text style={styles.orText}>OR</Text>
-
-                            <Text style={styles.manualLocationTitle}>Select Location Manually</Text>
-                        </View>
-
-                        {/* Manual Location Selection */}
-                        <View style={styles.manualLocationSection}>
-                            {/* State Selection */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.inputLabel}>State *</Text>
-                                {loadingLocations ? (
-                                    <Text style={styles.loadingText}>Loading states...</Text>
-                                ) : (
-                                    <View style={styles.optionsContainer}>
-                                        {states.map((state) => (
-                                            <TouchableOpacity
-                                                key={state.id}
-                                                style={[
-                                                    styles.optionButton,
-                                                    formData.selectedState === state.id && styles.optionButtonActive,
-                                                ]}
-                                                onPress={() => {
-                                                    setFormData({ 
-                                                        ...formData, 
-                                                        selectedState: state.id, 
-                                                        selectedDistrict: '', 
-                                                        selectedArea: '' 
-                                                    });
-                                                    loadDistricts(state.id);
-                                                }}
-                                            >
-                                                <Text
-                                                    style={[
-                                                        styles.optionText,
-                                                        formData.selectedState === state.id && styles.optionTextActive,
-                                                    ]}
-                                                >
-                                                    {state.name}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                )}
-                            </View>
-
-                            {/* District Selection */}
-                            {formData.selectedState && (
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.inputLabel}>District *</Text>
-                                    {loadingLocations ? (
-                                        <Text style={styles.loadingText}>Loading districts...</Text>
-                                    ) : (
-                                        <View style={styles.optionsContainer}>
-                                            {districts.map((district) => (
-                                                <TouchableOpacity
-                                                    key={district.id}
-                                                    style={[
-                                                        styles.optionButton,
-                                                        formData.selectedDistrict === district.id && styles.optionButtonActive,
-                                                    ]}
-                                                    onPress={() => {
-                                                        setFormData({ 
-                                                            ...formData, 
-                                                            selectedDistrict: district.id, 
-                                                            selectedArea: '' 
-                                                        });
-                                                        loadAreas(district.id);
-                                                    }}
-                                                >
-                                                    <Text
-                                                        style={[
-                                                            styles.optionText,
-                                                            formData.selectedDistrict === district.id && styles.optionTextActive,
-                                                        ]}
-                                                    >
-                                                        {district.name}
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
-                                    )}
-                                </View>
-                            )}
-
-                            {/* Area Selection */}
-                            {formData.selectedDistrict && (
-                                <View style={styles.inputGroup}>
-                                    <Text style={styles.inputLabel}>Area *</Text>
-                                    {loadingLocations ? (
-                                        <Text style={styles.loadingText}>Loading areas...</Text>
-                                    ) : (
-                                        <View style={styles.optionsContainer}>
-                                            {areas.map((area) => (
-                                                <TouchableOpacity
-                                                    key={area.id}
-                                                    style={[
-                                                        styles.optionButton,
-                                                        formData.selectedArea === area.id && styles.optionButtonActive,
-                                                    ]}
-                                                    onPress={() => setFormData({ ...formData, selectedArea: area.id })}
-                                                >
-                                                    <Text
-                                                        style={[
-                                                            styles.optionText,
-                                                            formData.selectedArea === area.id && styles.optionTextActive,
-                                                        ]}
-                                                    >
-                                                        {area.name} ({area.code})
-                                                    </Text>
-                                                    {area.description && (
-                                                        <Text style={styles.optionSubtext}>
-                                                            {area.description}
-                                                        </Text>
-                                                    )}
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
-                                    )}
-                                </View>
-                            )}
-
-                            {formData.selectedArea && (
-                                <TouchableOpacity
-                                    style={styles.confirmLocationButton}
-                                    onPress={confirmManualLocation}
-                                >
-                                    <Text style={styles.confirmLocationText}>Confirm Location</Text>
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </ScrollView>
-                </View>
-            </Modal>
+                onClose={() => setShowLocationModal(false)}
+                onLocationSelected={handleLocationSelected}
+                title="Select Issue Location"
+                allowCurrentLocation={true}
+            />
         </ScrollView>
     );
 }
@@ -878,136 +624,5 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#1E40AF',
         lineHeight: 18,
-    },
-    modalContainer: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingTop: 60,
-        paddingBottom: 20,
-        backgroundColor: '#FFFFFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-    },
-    modalCloseButton: {
-        padding: 4,
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-    },
-    modalHeaderSpacer: {
-        width: 32,
-    },
-    modalContent: {
-        flex: 1,
-        padding: 20,
-    },
-    locationMethodSection: {
-        marginBottom: 30,
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 16,
-    },
-    locationMethodButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#F0FDF4',
-        padding: 16,
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: '#BBF7D0',
-        gap: 12,
-        marginBottom: 16,
-    },
-    locationMethodContent: {
-        flex: 1,
-    },
-    locationMethodTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 4,
-    },
-    locationMethodDescription: {
-        fontSize: 14,
-        color: '#6B7280',
-    },
-    orText: {
-        textAlign: 'center',
-        fontSize: 14,
-        color: '#9CA3AF',
-        fontWeight: '600',
-        marginVertical: 16,
-    },
-    manualLocationTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 16,
-    },
-    manualLocationSection: {
-        gap: 16,
-    },
-    inputLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#111827',
-        marginBottom: 8,
-    },
-    loadingText: {
-        fontSize: 14,
-        color: '#6B7280',
-        textAlign: 'center',
-        padding: 16,
-    },
-    optionsContainer: {
-        gap: 8,
-        maxHeight: 200,
-    },
-    optionButton: {
-        padding: 12,
-        borderWidth: 2,
-        borderRadius: 12,
-        borderColor: '#E5E7EB',
-        backgroundColor: '#F9FAFB',
-    },
-    optionButtonActive: {
-        backgroundColor: '#F0F9FF',
-        borderColor: '#1E40AF',
-    },
-    optionText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#6B7280',
-        marginBottom: 2,
-    },
-    optionTextActive: {
-        color: '#1E40AF',
-    },
-    optionSubtext: {
-        fontSize: 12,
-        color: '#9CA3AF',
-    },
-    confirmLocationButton: {
-        backgroundColor: '#1E40AF',
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 20,
-    },
-    confirmLocationText: {
-        color: '#FFFFFF',
-        fontSize: 16,
-        fontWeight: '600',
     },
 });

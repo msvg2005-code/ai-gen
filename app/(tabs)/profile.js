@@ -556,29 +556,10 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={[styles.saveButton, saving && styles.saveButtonDisabled]}
             onPress={handleSave}
+            disabled={saving}
           >
-            {profile?.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarText}>
-                {profile?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U'}
-              </Text>
-            )}
-
+            <Save size={16} color="#FFFFFF" />
             <Text style={styles.saveButtonText}>Save</Text>
-          </TouchableOpacity>
-
-          {/* Camera Button */}
-          <TouchableOpacity
-            style={[styles.cameraButton, uploadingAvatar && styles.cameraButtonDisabled]}
-            onPress={showAvatarOptions}
-            disabled={uploadingAvatar}
-          >
-            {uploadingAvatar ? (
-              <Activity size={16} color="#FFFFFF" />
-            ) : (
-              <Camera size={16} color="#FFFFFF" />
-            )}
           </TouchableOpacity>
         </View>
       )}

@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Eye, EyeOff, Mail, Lock, User, Phone, MapPin, CircleCheck as CheckCircle } from 'lucide-react-native';
 import { signIn, signUp, sendVerificationEmail, getUserProfile, resetPassword, getAreas, getDepartments, getStates, getDistrictsByState, getAreasByDistrict } from '../lib/supabase';
 import { showSuccessToast, showErrorToast, showInfoToast } from '../components/Toast';
+import DropdownSelector from '../components/DropdownSelector';
 
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -15,13 +16,16 @@ export default function AuthScreen() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
-  const [areas, setAreas] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [loadingLocations, setLoadingLocations] = useState(false);
-  const [states, setStates] = useState([]);
-  const [districts, setDistricts] = useState([]);
-  const [selectedState, setSelectedState] = useState('');
-  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [locationData, setLocationData] = useState({
+    states: [],
+    districts: [],
+    areas: [],
+    departments: [],
+    loadingStates: false,
+    loadingDistricts: false,
+    loadingAreas: false,
+    loadingDepartments: false,
+  });
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -34,10 +38,10 @@ export default function AuthScreen() {
     password: '',
     confirmPassword: '',
     userType: 'citizen', // Changed from 'user' to 'citizen' to match backend
-    selectedState: '',
-    selectedDistrict: '',
-    selectedArea: '',
-    selectedDepartment: '',
+    stateId: '',
+    districtId: '',
+    areaId: '',
+    departmentId: '',
   });
   const router = useRouter();
 
@@ -52,99 +56,94 @@ export default function AuthScreen() {
   // Load states when admin type is selected and we reach step 2
   useEffect(() => {
     if (!isLogin && currentStep === 2 && (formData.userType === 'area_super_admin' || formData.userType === 'department_admin')) {
-      console.log('Loading states for admin user...');
       loadStates();
     }
   }, [formData.userType, isLogin, currentStep]);
 
-  useEffect(() => {
-    if (selectedState) {
-      console.log('Loading districts for state:', selectedState);
-      loadDistricts(selectedState);
-    }
-  }, [selectedState]);
-
-  useEffect(() => {
-    if (selectedDistrict) {
-      console.log('Loading areas for district:', selectedDistrict);
-      loadAreas(selectedDistrict);
-    }
-  }, [selectedDistrict]);
-
-  useEffect(() => {
-    if (formData.userType === 'department_admin') {
-      console.log('Loading departments...');
-      loadDepartments();
-    }
-  }, [formData.userType]);
-
   const loadStates = async () => {
     try {
-      console.log('Calling getStates...');
-      setLoadingLocations(true);
+      setLocationData(prev => ({ ...prev, loadingStates: true }));
       const { data, error } = await getStates();
       if (error) {
-        console.error('Error in getStates:', error);
-        throw error;
+        showErrorToast('Error', 'Failed to load states');
+        return;
       }
-      console.log('States loaded:', data);
-      setStates(data || []);
+      setLocationData(prev => ({ ...prev, states: data || [] }));
     } catch (error) {
       console.error('Error loading states:', error);
       showErrorToast('Error', 'Failed to load states');
     } finally {
-      setLoadingLocations(false);
+      setLocationData(prev => ({ ...prev, loadingStates: false }));
     }
   };
 
-  const loadDistricts = async (stateId) => {
+  const handleStateSelect = async (state) => {
     try {
-      setLoadingLocations(true);
-      const { data, error } = await getDistrictsByState(stateId);
+      setFormData(prev => ({ ...prev, stateId: state.id, districtId: '', areaId: '' }));
+      setLocationData(prev => ({ ...prev, loadingDistricts: true, districts: [], areas: [] }));
+      
+      const { data, error } = await getDistrictsByState(state.id);
       if (error) throw error;
-      setDistricts(data || []);
-      setAreas([]); // Reset areas when state changes
+      
+      setLocationData(prev => ({ ...prev, districts: data || [] }));
     } catch (error) {
       console.error('Error loading districts:', error);
       showErrorToast('Error', 'Failed to load districts');
     } finally {
-      setLoadingLocations(false);
+      setLocationData(prev => ({ ...prev, loadingDistricts: false }));
     }
   };
 
-  const loadAreas = async (districtId) => {
+  const handleDistrictSelect = async (district) => {
     try {
-      setLoadingLocations(true);
-      const { data, error } = await getAreasByDistrict(districtId);
+      setFormData(prev => ({ ...prev, districtId: district.id, areaId: '' }));
+      setLocationData(prev => ({ ...prev, loadingAreas: true, areas: [] }));
+      
+      const { data, error } = await getAreasByDistrict(district.id);
       if (error) throw error;
-      setAreas(data || []);
+      
+      setLocationData(prev => ({ ...prev, areas: data || [] }));
     } catch (error) {
       console.error('Error loading areas:', error);
       showErrorToast('Error', 'Failed to load areas');
     } finally {
-      setLoadingLocations(false);
+      setLocationData(prev => ({ ...prev, loadingAreas: false }));
     }
+  };
+
+  const handleAreaSelect = (area) => {
+    setFormData(prev => ({ ...prev, areaId: area.id }));
   };
 
   const loadDepartments = async () => {
     try {
+      setLocationData(prev => ({ ...prev, loadingDepartments: true }));
       const { data, error } = await getDepartments();
       if (error) throw error;
-      setDepartments(data || []);
+      setLocationData(prev => ({ ...prev, departments: data || [] }));
     } catch (error) {
       console.error('Error loading departments:', error);
       showErrorToast('Error', 'Failed to load departments');
+    } finally {
+      setLocationData(prev => ({ ...prev, loadingDepartments: false }));
     }
   };
+
+  const handleDepartmentSelect = (department) => {
+    setFormData(prev => ({ ...prev, departmentId: department.id }));
+  };
+
+  // Load departments when department admin is selected
+  useEffect(() => {
+    if (formData.userType === 'department_admin') {
+      loadDepartments();
+    }
+  }, [formData.userType]);
 
   const handleAuthButtonPress = async () => {
     if (loading) return;
 
-    console.log('Button pressed - isLogin:', isLogin, 'currentStep:', currentStep);
-
     if (!isLogin && currentStep === 1) {
-      console.log('Processing step 1 validation...');
-
       if (
         !formData.firstName?.trim() ||
         !formData.lastName?.trim() ||
@@ -163,12 +162,10 @@ export default function AuthScreen() {
         return;
       }
 
-      console.log('Step 1 validation passed, moving to step 2');
       setCurrentStep(2);
       return;
     }
 
-    console.log('Proceeding to handleAuth...');
     await handleAuth();
   };
 
@@ -274,19 +271,17 @@ export default function AuthScreen() {
         }
 
         // Validate admin selections
-        if (formData.userType === 'area_super_admin' && !formData.selectedArea) {
+        if (formData.userType === 'area_super_admin' && !formData.areaId) {
           Alert.alert('Error', 'Please select an area to manage');
           setLoading(false);
           return;
         }
 
-        if (formData.userType === 'department_admin' && !formData.selectedDepartment) {
+        if (formData.userType === 'department_admin' && !formData.departmentId) {
           Alert.alert('Error', 'Please select a department to manage');
           setLoading(false);
           return;
         }
-
-        console.log('Creating account with user type:', formData.userType);
 
         // Prepare profile data - match backend expectations exactly
         const profileData = {
@@ -300,16 +295,9 @@ export default function AuthScreen() {
         };
 
         const locationData = {
-          areaId: formData.selectedArea || null,
-          departmentId: formData.selectedDepartment || null,
+          areaId: formData.areaId || null,
+          departmentId: formData.departmentId || null,
         };
-
-        console.log('Signup payload:', {
-          email: formData.email.trim(),
-          userType: formData.userType,
-          profileData,
-          locationData
-        });
 
         const result = await signUp(
           formData.email.trim(),
@@ -319,10 +307,7 @@ export default function AuthScreen() {
           locationData
         );
 
-        console.log('Signup result:', result);
-
         if (result.error) {
-          console.error('Signup error:', result.error);
           let errorMessage = result.error.message || 'Failed to create account';
 
           // Enhanced error handling with more specific messages
@@ -347,8 +332,6 @@ export default function AuthScreen() {
 
         // Handle successful signup
         if (result.data) {
-          console.log('Account created successfully:', result.data);
-
           setVerificationSent(true);
 
           // Show success message with better instructions
@@ -366,7 +349,6 @@ export default function AuthScreen() {
           }, 4000);
 
         } else {
-          console.error('Unexpected signup response:', result);
           showErrorToast('Error', 'Account may have been created, but there was an issue. Please try signing in.');
 
           setTimeout(() => {
@@ -453,16 +435,21 @@ export default function AuthScreen() {
       password: '',
       confirmPassword: '',
       userType: 'citizen', // Changed default to 'citizen'
-      selectedState: '',
-      selectedDistrict: '',
-      selectedArea: '',
-      selectedDepartment: '',
+      stateId: '',
+      districtId: '',
+      areaId: '',
+      departmentId: '',
     });
-    setSelectedState('');
-    setSelectedDistrict('');
-    setStates([]);
-    setDistricts([]);
-    setAreas([]);
+    setLocationData({
+      states: [],
+      districts: [],
+      areas: [],
+      departments: [],
+      loadingStates: false,
+      loadingDistricts: false,
+      loadingAreas: false,
+      loadingDepartments: false,
+    });
   };
 
   const goBack = () => {
@@ -804,156 +791,62 @@ export default function AuthScreen() {
                         <Text style={styles.sectionSubtitle}>Select your assigned location and department</Text>
                       </View>
 
-                      {/* State Selection */}
-                      <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>State *</Text>
-                        {loadingLocations ? (
-                          <Text style={styles.loadingText}>Loading states...</Text>
-                        ) : (
-                          <View style={styles.optionsContainer}>
-                            {states.length === 0 ? (
-                              <Text style={styles.loadingText}>No states found</Text>
-                            ) : (
-                              states.map((state) => (
-                                <TouchableOpacity
-                                  key={state.id}
-                                  style={[
-                                    styles.optionButton,
-                                    selectedState === state.id && styles.optionButtonActive,
-                                  ]}
-                                  onPress={() => {
-                                    console.log('Selected state:', state.name);
-                                    setSelectedState(state.id);
-                                    setSelectedDistrict('');
-                                    setFormData({ ...formData, selectedState: state.id, selectedDistrict: '', selectedArea: '' });
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.optionText,
-                                      selectedState === state.id && styles.optionTextActive,
-                                    ]}
-                                  >
-                                    {state.name} ({state.code})
-                                  </Text>
-                                </TouchableOpacity>
-                              ))
-                            )}
-                          </View>
-                        )}
-                      </View>
+                      <DropdownSelector
+                        label="State"
+                        placeholder="Select a state"
+                        options={locationData.states}
+                        selectedValue={formData.stateId}
+                        onSelect={handleStateSelect}
+                        loading={locationData.loadingStates}
+                        required
+                      />
 
-                      {/* District Selection */}
-                      {selectedState && (
-                        <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>District *</Text>
-                          {loadingLocations ? (
-                            <Text style={styles.loadingText}>Loading districts...</Text>
-                          ) : (
-                            <View style={styles.optionsContainer}>
-                              {districts.map((district) => (
-                                <TouchableOpacity
-                                  key={district.id}
-                                  style={[
-                                    styles.optionButton,
-                                    selectedDistrict === district.id && styles.optionButtonActive,
-                                  ]}
-                                  onPress={() => {
-                                    setSelectedDistrict(district.id);
-                                    setFormData({ ...formData, selectedDistrict: district.id, selectedArea: '' });
-                                  }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.optionText,
-                                      selectedDistrict === district.id && styles.optionTextActive,
-                                    ]}
-                                  >
-                                    {district.name} ({district.code})
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )}
-                        </View>
+                      {formData.stateId && (
+                        <DropdownSelector
+                          label="District"
+                          placeholder="Select a district"
+                          options={locationData.districts}
+                          selectedValue={formData.districtId}
+                          onSelect={handleDistrictSelect}
+                          loading={locationData.loadingDistricts}
+                          required
+                        />
                       )}
 
-                      {/* Area Selection for Area Super Admin */}
-                      {formData.userType === 'area_super_admin' && selectedDistrict && (
-                        <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Area to Manage *</Text>
-                          {loadingLocations ? (
-                            <Text style={styles.loadingText}>Loading areas...</Text>
-                          ) : (
-                            <View style={styles.optionsContainer}>
-                              {areas.map((area) => (
-                                <TouchableOpacity
-                                  key={area.id}
-                                  style={[
-                                    styles.optionButton,
-                                    formData.selectedArea === area.id && styles.optionButtonActive,
-                                  ]}
-                                  onPress={() => setFormData({ ...formData, selectedArea: area.id })}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.optionText,
-                                      formData.selectedArea === area.id && styles.optionTextActive,
-                                    ]}
-                                  >
-                                    {area.name} ({area.code})
-                                  </Text>
-                                  {area.description && (
-                                    <Text style={styles.optionSubtext}>
-                                      {area.description}
-                                    </Text>
-                                  )}
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          )}
-                        </View>
+                      {formData.userType === 'area_super_admin' && formData.districtId && (
+                        <DropdownSelector
+                          label="Area to Manage"
+                          placeholder="Select an area"
+                          options={locationData.areas}
+                          selectedValue={formData.areaId}
+                          onSelect={handleAreaSelect}
+                          loading={locationData.loadingAreas}
+                          required
+                        />
                       )}
 
-                      {/* Department Selection for Department Admin */}
                       {formData.userType === 'department_admin' && (
-                        <View style={styles.inputGroup}>
-                          <Text style={styles.inputLabel}>Department to Manage *</Text>
-                          {loadingLocations ? (
-                            <Text style={styles.loadingText}>Loading departments...</Text>
-                          ) : (
-                            <View style={styles.optionsContainer}>
-                              {departments.map((dept) => (
-                                <TouchableOpacity
-                                  key={dept.id}
-                                  style={[
-                                    styles.optionButton,
-                                    formData.selectedDepartment === dept.id && styles.optionButtonActive,
-                                    { borderColor: getCategoryColor(dept.category) },
-                                  ]}
-                                  onPress={() => setFormData({ ...formData, selectedDepartment: dept.id })}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.optionText,
-                                      formData.selectedDepartment === dept.id && styles.optionTextActive,
-                                    ]}
-                                  >
-                                    {dept.name}
-                                  </Text>
-                                  <Text style={styles.optionSubtext}>
-                                    {dept.category.charAt(0).toUpperCase() + dept.category.slice(1)}
-                                  </Text>
-                                  {dept.description && (
-                                    <Text style={styles.optionDescription}>
-                                      {dept.description}
-                                    </Text>
-                                  )}
-                                </TouchableOpacity>
-                              ))}
+                        <DropdownSelector
+                          label="Department to Manage"
+                          placeholder="Select a department"
+                          options={locationData.departments}
+                          selectedValue={formData.departmentId}
+                          onSelect={handleDepartmentSelect}
+                          loading={locationData.loadingDepartments}
+                          required
+                          renderOption={(dept) => (
+                            <View>
+                              <Text style={styles.optionName}>{dept.name}</Text>
+                              <Text style={styles.optionCode}>({dept.code})</Text>
+                              <Text style={styles.optionCategory}>
+                                {dept.category.charAt(0).toUpperCase() + dept.category.slice(1)}
+                              </Text>
+                              {dept.description && (
+                                <Text style={styles.optionDescription}>{dept.description}</Text>
+                              )}
                             </View>
                           )}
-                        </View>
+                        />
                       )}
                     </View>
                   )}
@@ -1307,6 +1200,22 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     marginTop: 2,
     lineHeight: 14,
+  },
+  optionName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  optionCode: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
+  optionCategory: {
+    fontSize: 12,
+    color: '#8B5CF6',
+    fontWeight: '500',
   },
   buttonContainer: {
     flexDirection: 'row',
